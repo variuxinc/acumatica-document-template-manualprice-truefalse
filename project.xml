@@ -1,0 +1,126 @@
+<Customization level="" description="" product-version="24.107">
+    <Graph ClassName="SOOrderEntry" Source="#CDATA" IsNew="True" FileType="ExistingGraph">
+        <CDATA name="Source"><![CDATA[using PX.Data;
+using PX.Objects.SO;
+using PX.Objects.IN;
+using PX.Objects.AR;
+using System.Collections.Generic;
+using System;
+
+namespace PX.Objects.SO
+{
+    public class SOOrderEntry_Extension : PXGraphExtension<SOOrderEntry>
+    {
+        public static bool IsActive() => true;
+
+        private readonly Dictionary<Guid, bool?> _templateManualPriceMap = new();
+
+        #region Event Handlers
+
+        protected void SOLine_RowInserting(PXCache cache, PXRowInsertingEventArgs e)
+        {
+            try
+            {
+                var row = (SOLine)e.Row;
+                if (row?.LineNbr == null || row.InventoryID == null) return;
+
+                var noteID = row.NoteID ?? Guid.NewGuid();
+
+                if (!_templateManualPriceMap.ContainsKey(noteID))
+                {
+                    _templateManualPriceMap[noteID] = row.ManualPrice;
+
+                    PXTrace.WriteInformation($"[Custom LOG] [RowInserting] ManualPrice captured from template. InventoryID: {row.InventoryID}, LineNbr: {row.LineNbr}");
+                }
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError($"[SOLine_RowInserting] Exception: {ex.Message}");
+            }
+        }
+
+        protected void SOLine_RowInserted(PXCache cache, PXRowInsertedEventArgs e)
+        {
+            try
+            {
+                var row = (SOLine)e.Row;
+                if (row?.InventoryID == null) return;
+
+                var orderNbr = Base.Document.Current?.OrderNbr ?? "(Unknown)";
+                var noteID = row.NoteID ?? Guid.NewGuid();
+
+                if (!_templateManualPriceMap.TryGetValue(noteID, out var templateManualPrice))
+                {
+                    PXTrace.WriteInformation($"[Custom LOG] [RowInserted] No ManualPrice found from template. InventoryID: {row.InventoryID}, LineNbr: {row.LineNbr}");
+                    return;
+                }
+
+                if (templateManualPrice == false)
+                {
+                    PXTrace.WriteInformation($"[Custom LOG] [RowInserted] Order: {orderNbr}, InventoryID: {row.InventoryID}, LineNbr: {row.LineNbr} – Applying ManualPrice = false");
+
+                    cache.SetValueExt<SOLine.manualPrice>(row, false);
+
+                    object newPrice = null;
+                    cache.RaiseFieldDefaulting<SOLine.curyUnitPrice>(row, out newPrice);
+                    cache.SetValueExt<SOLine.curyUnitPrice>(row, newPrice);
+
+                    cache.Update(row);
+
+                    PXTrace.WriteInformation($"[Custom LOG] [RowInserted] Unit Price recalculated. Order: {orderNbr}, InventoryID: {row.InventoryID}, New Price: {newPrice}");
+                }
+                else
+                {
+                    PXTrace.WriteInformation($"[Custom LOG] [RowInserted] Template has ManualPrice = true → No action. Order: {orderNbr}, LineNbr: {row.LineNbr}");
+                }
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError($"[SOLine_RowInserted] Exception: {ex.Message}");
+            }
+        }
+
+        protected void SOLine_RowUpdated(PXCache cache, PXRowUpdatedEventArgs e)
+        {
+            try
+            {
+                var row = (SOLine)e.Row;
+                var oldRow = (SOLine)e.OldRow;
+                if (row?.InventoryID == null || oldRow == null) return;
+
+                var orderNbr = Base.Document.Current?.OrderNbr ?? "(Unknown)";
+                var noteID = row.NoteID ?? Guid.NewGuid();
+
+                if (!_templateManualPriceMap.TryGetValue(noteID, out var templateManualPrice))
+                {
+                    PXTrace.WriteInformation($"[Custom LOG] [RowUpdated] No template info available. Order: {orderNbr}, LineNbr: {row.LineNbr}");
+                    return;
+                }
+
+                if (templateManualPrice == false && oldRow.ManualPrice != true && row.ManualPrice == true)
+                {
+                    PXTrace.WriteInformation($"[Custom LOG] [RowUpdated] Preventing ManualPrice override to true. Order: {orderNbr}, InventoryID: {row.InventoryID}, LineNbr: {row.LineNbr}");
+
+                    cache.SetValueExt<SOLine.manualPrice>(row, false);
+
+                    object newPrice = null;
+                    cache.RaiseFieldDefaulting<SOLine.curyUnitPrice>(row, out newPrice);
+                    cache.SetValueExt<SOLine.curyUnitPrice>(row, newPrice);
+
+                    cache.Update(row);
+
+                    PXTrace.WriteInformation($"[Custom LOG] [RowUpdated] ManualPrice set back to false and price recalculated. New Price: {newPrice}");
+                }
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError($"[SOLine_RowUpdated] Exception: {ex.Message}");
+            }
+        }
+
+        #endregion
+    }
+}
+]]></CDATA>
+    </Graph>
+</Customization>
