@@ -65,7 +65,7 @@ namespace PX.Objects.SO
                     cache.RaiseFieldDefaulting<SOLine.curyUnitPrice>(row, out newPrice);
                     cache.SetValueExt<SOLine.curyUnitPrice>(row, newPrice);
 
-                    cache.Update(row);
+              
 
                     PXTrace.WriteInformation($"[Custom LOG] [RowInserted] Unit Price recalculated. Order: {orderNbr}, InventoryID: {row.InventoryID}, New Price: {newPrice}");
                 }
